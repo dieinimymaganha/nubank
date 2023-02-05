@@ -26,7 +26,7 @@ CREATE TABLE "customers" (
 
 CREATE TABLE "accounts" (
   "account_id" uuid PRIMARY KEY,
-  "customer_id" uuid,
+  "customer_id" uuid UNIQUE,
   "created_at" timestamp,
   "status" varchar(128),
   "account_branch" varchar(128),
@@ -100,7 +100,7 @@ CREATE TABLE "d_weekday" (
   "weekday_id" int PRIMARY KEY,
   "action_weekday" varchar(128)
 );
-/*
+
 ALTER TABLE "state" ADD FOREIGN KEY ("country_id") REFERENCES "country" ("country_id");
 
 ALTER TABLE "city" ADD FOREIGN KEY ("state_id") REFERENCES "state" ("state_id");
@@ -139,4 +139,4 @@ ALTER TABLE "d_time" ADD FOREIGN KEY ("month_id") REFERENCES "d_month" ("month_i
 
 ALTER TABLE "d_time" ADD FOREIGN KEY ("year_id") REFERENCES "d_year" ("year_id");
 
-ALTER TABLE "d_time" ADD FOREIGN KEY ("weekday_id") REFERENCES "d_weekday" ("weekday_id");*/
+ALTER TABLE "d_time" ADD FOREIGN KEY ("weekday_id") REFERENCES "d_weekday" ("weekday_id");
