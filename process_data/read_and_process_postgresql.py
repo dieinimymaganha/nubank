@@ -10,9 +10,7 @@ from utils.utils import Utils
 import json
 
 
-# Para centralizar todas as ingestões optei por criar uma classe que terá todas as funções para tratar e realizar a ingestão dos dados.
-# Em sua inicialização setei algumas variaveis, connection: responsavel por conter a URI que fará a conexão com o banco de dados.
-# Os demais são locais onde os arquivos para carga estão disponibilizados
+
 class ProcessDataSetsPostgresql:
     def __init__(self, connection: str):
         self.connection = ConnectionPostgres.connect(connection)
@@ -28,6 +26,8 @@ class ProcessDataSetsPostgresql:
         self.files_d_time = glob.glob("Tables/d_time/*.csv")
         self.files_investiments = glob.glob("Tables/investments/*.txt")
         self.files_pix_moviments = glob.glob("Tables/pix_movements/*")
+        self.files_transfer_ins = glob.glob("Tables/transfer_ins/*")
+        self.files_transfer_out = glob.glob("Tables/transfer_outs/*")
 
     def read_and_process_accounts(self):
         """
@@ -159,19 +159,24 @@ class ProcessDataSetsPostgresql:
             df = pd.json_normalize(data, 'transactions', ['account_id'])
             list_df.append(df)
         df = pd.concat(list_df)
+
+        df = Utils.convert_none_values(df)
         df["transaction_id"] = df["transaction_id"].apply(
             lambda x: Utils.convert_int_to_uuid_version_4(int(x)))
         df["account_id"] = df["account_id"].apply(
             lambda x: Utils.convert_int_to_uuid_version_4(int(x)))
         df.drop(columns=['investment_completed_at_timestamp'],
                 inplace=True)
-        df['investment_completed_at'] = df[
-            'investment_completed_at'].apply(
-            lambda x: None if x == 'None' else x)
 
         self.ingestion(df=df, table_name='investments')
 
     def read_and_process_pix_movements(self):
+        # Durante a analise identificado que existiam 2 arquivos na
+        # pasta table. Para garantir que não havia nenhum dado sendo ignorado
+        # realizei a leitura dos dois formatos, ajustei todos os formatos dos
+        # dados e removi dados duplicados para garantir que todas as
+        # informações foram salvas.
+
         list_df = []
         for file in self.files_pix_moviments:
 
@@ -184,16 +189,66 @@ class ProcessDataSetsPostgresql:
                 list_df.append(df)
 
         df = pd.concat(list_df)
+        df = Utils.convert_none_values(df)
 
-        df['pix_completed_at'] = df[
-            'pix_completed_at'].apply(
-            lambda x: None if x == 'None' else x)
         df["id"] = df["id"].apply(
             lambda x: Utils.convert_int_to_uuid_version_4(int(x)))
         df["account_id"] = df["account_id"].apply(
             lambda x: Utils.convert_int_to_uuid_version_4(int(x)))
-
+        df['pix_amount'] = df['pix_amount'].apply(lambda x: float(x))
+        df['pix_requested_at'] = df['pix_requested_at'].apply(lambda x: int(x))
+        df['pix_completed_at'] = df['pix_completed_at'].apply(
+            lambda x: int(x) if x is not None else None)
+        df['status'] = df['status'].apply(lambda x: str(x))
+        df['in_or_out'] = df['in_or_out'].apply(lambda x: str(x))
+        df.sort_values(by=list(df.columns), inplace=True)
+        df.drop_duplicates(subset=list(df.columns), keep='last', inplace=True)
         self.ingestion(df=df, table_name='pix_movements')
+
+    def read_and_process_transfer_ins(self):
+        list_df = []
+        for file in self.files_transfer_ins:
+            name, ext = os.path.splitext(file)
+            if ext == '.xlsx':
+                df = pd.read_excel(file)
+                list_df.append(df)
+            if ext == '.csv':
+                df = pd.read_csv(file)
+                list_df.append(df)
+        df = pd.concat(list_df)
+        df = Utils.convert_none_values(df)
+        self.transform_data_transfer(df=df)
+        self.ingestion(df=df, table_name='transfer_ins')
+
+    def read_and_process_transfer_out(self):
+        list_df = []
+        for file in self.files_transfer_out:
+            name, ext = os.path.splitext(file)
+            if ext == '.xlsx':
+                df = pd.read_excel(file)
+                list_df.append(df)
+            if ext == '.csv':
+                df = pd.read_csv(file)
+                list_df.append(df)
+        df = pd.concat(list_df)
+        df = Utils.convert_none_values(df)
+        self.transform_data_transfer(df=df)
+        self.ingestion(df=df, table_name='transfer_outs')
+
+    @staticmethod
+    def transform_data_transfer(df):
+        df["id"] = df["id"].apply(
+            lambda x: Utils.convert_int_to_uuid_version_4(int(x)))
+        df["account_id"] = df["account_id"].apply(
+            lambda x: Utils.convert_int_to_uuid_version_4(int(x)))
+        df['amount'] = df['amount'].apply(lambda x: float(x))
+        df['transaction_requested_at'] = df['transaction_requested_at'].apply(
+            lambda x: float(x))
+        df['transaction_completed_at'] = df['transaction_completed_at'].apply(
+            lambda x: int(x) if x is not None else None)
+        df.sort_values(by=list(df.columns), inplace=True)
+        df.drop_duplicates(subset=list(df.columns), keep='last', inplace=True)
+        return df
 
     def ingestion(self, df: DataFrame, table_name: str):
         df.to_sql(table_name, con=self.connection.engine,
@@ -203,15 +258,17 @@ class ProcessDataSetsPostgresql:
     @classmethod
     def run_all_ingestions(cls, connection):
         run = cls(connection=connection)
-        # run.read_and_process_accounts()
-        # run.read_and_process_customers()
-        # run.read_and_process_city()
-        # run.read_and_process_state()
-        # run.read_and_process_country()
-        # run.read_and_process_dimension_year()
-        # run.read_and_process_dimension_month()
-        # run.read_and_process_dimension_week()
-        # run.read_and_process_dimension_weekday()
-        # run.read_and_process_dimension_time()
-        # run.read_and_process_investiments()
+        run.read_and_process_country()
+        run.read_and_process_state()
+        run.read_and_process_city()
+        run.read_and_process_accounts()
+        run.read_and_process_customers()
+        run.read_and_process_dimension_year()
+        run.read_and_process_dimension_month()
+        run.read_and_process_dimension_week()
+        run.read_and_process_dimension_weekday()
+        run.read_and_process_dimension_time()
+        run.read_and_process_investiments()
         run.read_and_process_pix_movements()
+        run.read_and_process_transfer_ins()
+        run.read_and_process_transfer_out()
