@@ -1,72 +1,55 @@
-WITH movements AS (
-	SELECT
-		transfer_ins.account_id AS account_id,
-		d_time.month_id AS month_id,
-		d_time.year_id AS year_id,
-		'in' AS in_or_out,
-		sum(transfer_ins.amount) AS sum
-	FROM
-		transfer_ins
-		LEFT JOIN d_time ON transfer_ins.transaction_completed_at = d_time.time_id
-	WHERE
-		transfer_ins.status = 'completed'
-	GROUP BY
-		transfer_ins.account_id,
-		d_time.month_id,
-		d_time.year_id
-	UNION
-	ALL
-	SELECT
-		transfer_outs.account_id AS account_id,
-		d_time.month_id AS month_id,
-		d_time.year_id AS year_id,
-		'out' AS in_or_out,
-		sum(transfer_outs.amount) AS sum
-	FROM
-		transfer_outs
-		LEFT JOIN d_time ON transfer_outs.transaction_completed_at = d_time.time_id
-	WHERE
-		transfer_outs.status = 'completed'
-	GROUP BY
-		transfer_outs.account_id,
-		d_time.month_id,
-		d_time.year_id
-	UNION
-	ALL
-	SELECT
-		pix_movements.account_id AS account_id,
-		d_time.month_id AS month_id,
-		d_time.year_id AS year_id,
-		pix_movements.in_or_out AS in_or_out,
-		sum(pix_movements.pix_amount) AS sum
-	FROM
-		pix_movements
-		LEFT JOIN d_time ON pix_movements.pix_completed_at = d_time.time_id
-	WHERE
-		pix_movements.status = 'completed'
-	GROUP BY
-		pix_movements.account_id,
-		d_time.month_id,
-		d_time.year_id,
-		pix_movements.in_or_out
+WITH transfer_balance AS (
+  SELECT
+    account_id,
+    month_id,
+    year_id,
+    SUM(CASE WHEN transfer_type = 'in' THEN amount ELSE -amount END) AS balance
+  FROM (
+    SELECT
+      account_id,
+      extract(month from action_timestamp) AS month_id,
+      extract(year from action_timestamp) AS year_id,
+      transaction_requested_at,
+      transaction_completed_at,
+      amount,
+      'in' as transfer_type
+    FROM transfer_ins
+    JOIN d_time ON transaction_requested_at = time_id
+    WHERE status = 'completed'
+    UNION
+    SELECT
+      account_id,
+      extract(month from action_timestamp) AS month_id,
+      extract(year from action_timestamp) AS year_id,
+      transaction_requested_at,
+      transaction_completed_at,
+      amount,
+      'out' as transfer_type
+    FROM transfer_outs
+    JOIN d_time ON transaction_requested_at = time_id
+    WHERE status = 'completed'
+    UNION
+    select account_id, month_id ,year_id ,transaction_requested_at ,transaction_completed_at ,amount, case when transfer_type = 'pix_in' then 'in' else 'out' end as transfer_type from (select
+	account_id,
+	pix_amount as amount,
+	pix_requested_at as transaction_requested_at,
+	pix_completed_at as transaction_completed_at,
+	status,
+	in_or_out as transfer_type,
+	extract(month from action_timestamp) AS month_id ,
+      extract(year from action_timestamp) AS year_id
+from
+	pix_movements as p
+	left join d_time dt on p.pix_completed_at = dt.time_id
+where
+	status = 'completed'
+) as pix_moviments
+  ) AS transfer_data
+  GROUP BY account_id, month_id, year_id
 )
 SELECT
-	account_id,
-	month_id,
-	year_id,
-	SUM(
-		CASE
-			WHEN in_or_out = 'in' THEN sum
-			ELSE - sum
-		END
-	) AS balance
-FROM
-	movements
-GROUP BY
-	account_id,
-	month_id,
-	year_id
-ORDER BY
-	account_id ASC,
-	year_id ASC,
-	month_id ASC;
+  account_id,
+  month_id,
+  year_id,
+  SUM(balance) OVER (PARTITION BY account_id ORDER BY year_id, month_id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS running_balance
+FROM transfer_balance;
