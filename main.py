@@ -1,5 +1,9 @@
 from process_data.read_and_process_postgresql import \
     ProcessDataSetsPostgresql
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 def main(uri_connection_postgresql):
@@ -8,4 +12,4 @@ def main(uri_connection_postgresql):
 
 
 if __name__ == '__main__':
-    main('postgresql+psycopg2://maganha:m0du10gp@localhost:5432/nubank')
+    main(os.getenv('DATABASE'))

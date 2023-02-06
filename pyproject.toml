@@ -10,6 +10,7 @@ pandas = "^1.5.3"
 SQLAlchemy = "^1.4.23"
 psycopg2-binary = "^2.9.3"
 openpyxl = "^3.1.0"
+python-dotenv = "^0.21.1"
 
 [tool.poetry.dev-dependencies]
 
